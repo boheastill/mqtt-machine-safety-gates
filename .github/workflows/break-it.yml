@@ -1,0 +1,19 @@
+# The acceptance harness is the CI gate: if any attempt to break the machine
+# ever succeeds, the build fails. A safety property that isn't enforced on every
+# push is a safety property you used to have.
+name: break-it
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  acceptance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Try to break the machine
+        run: python3 break_it.py
