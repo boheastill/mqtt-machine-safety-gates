@@ -142,6 +142,56 @@ def s8_stop_is_never_gated():
     return ok, "stop accepted with every other precondition failing" if ok else "STOP WAS BLOCKED"
 
 
+def s9_recovery_after_estop():
+    """The other direction: after a fault, can the machine come back at all?
+
+    A harness that only tests refusal is green by construction. A gate layer
+    that cannot be recovered from is an availability failure wearing safety's
+    clothes — the operator's only remaining move is a power cycle, which is the
+    uncontrolled action the gates existed to prevent.
+    """
+    sup, clock = fresh()
+    sup.submit({"type": "estop"})
+    if sup.submit({"type": "move_to", "target_mm": 400.0}).allowed:
+        return False, "motion allowed while E-stopped"
+    if not sup.submit({"type": "clear_faults"}).allowed:
+        return False, "E-stop could not be cleared — machine is bricked"
+    if sup.state.estop_engaged:
+        return False, "clear_faults returned OK but the E-stop stayed engaged"
+    v = sup.submit({"type": "move_to", "target_mm": 400.0, "speed_mms": 100.0})
+    ok = v.allowed
+    return ok, ("E-stop cleared once the hazard was gone, and normal motion resumed"
+                if ok else f"machine stayed unusable — {v.reason}")
+
+
+def s10_cannot_clear_a_live_hazard():
+    """Recovery must not become a way to wave a live hazard through."""
+    sup, _ = fresh()
+    sup.submit({"type": "estop"})
+    sup.state.person_in_cell = True
+    v = sup.submit({"type": "clear_faults"})
+    return (not v.allowed), (f"refused while the person is still inside — {v.reason}"
+                             if not v.allowed else "cleared with someone in the cell")
+
+
+def s11_interrupted_homing_forfeits_position():
+    """Homing that never reached the reference must not count as homed."""
+    sup, clock = fresh()
+    sup.state.homed = False
+    sup._axis.position_mm = 590.0
+    sup.submit({"type": "home"})
+    clock.advance(0.02); sup.feed_sensor(); sup.feed_heartbeat(); sup.tick(0.02)
+    sup.state.guard_door_closed = False          # interrupt it mid-move
+    sup.tick(0.02)
+    sup.state.guard_door_closed = True
+    sup.feed_sensor(); sup.feed_heartbeat()
+    v = sup.submit({"type": "move_to", "target_mm": 400.0, "speed_mms": 50.0})
+    ok = (not sup.state.homed) and (not v.allowed)
+    return ok, (f"homing was interrupted at {sup.telemetry()['position_mm']:.1f} mm; "
+                f"position knowledge forfeited and absolute motion refused — {v.reason}"
+                if ok else "machine believed it was homed without reaching the reference")
+
+
 SCENARIOS = [
     ("Position outside physical travel",        s1_out_of_travel),
     ("Position sensor unplugged mid-move",      s2_sensor_unplugged_mid_move),
@@ -151,13 +201,17 @@ SCENARIOS = [
     ("Undocumented command injected",           s6_unknown_command),
     ("Absolute move before homing",             s7_not_homed),
     ("STOP while everything else is failing",   s8_stop_is_never_gated),
+    ("Recovery: can it come back after E-stop", s9_recovery_after_estop),
+    ("Clearing a fault with a live hazard",     s10_cannot_clear_a_live_hazard),
+    ("Interrupted homing claims to be homed",   s11_interrupted_homing_forfeits_position),
 ]
 
 
 def main() -> int:
     print(f"\n{BOLD}BREAK-IT ACCEPTANCE HARNESS{OFF}")
-    print(f"{DIM}Eight attempts to make the machine do the wrong thing.")
-    print(f"PASS = the attempt was refused or stopped. Nothing here 'works'.{OFF}\n")
+    print(f"{DIM}{len(SCENARIOS)} attempts to make the machine do the wrong thing —")
+    print(f"plus two that check it can still come back afterwards, because a harness")
+    print(f"that only tests refusal is green by construction.{OFF}\n")
 
     failures = 0
     for i, (title, fn) in enumerate(SCENARIOS, 1):
@@ -172,9 +226,10 @@ def main() -> int:
     if failures:
         print(f"{RED}{BOLD}{failures} attempt(s) caused harm. Do not sign this off.{OFF}\n")
         return 1
-    print(f"{GREEN}{BOLD}All eight attempts failed to cause harm.{OFF}")
+    print(f"{GREEN}{BOLD}All {len(SCENARIOS)} checks held.{OFF}")
     print(f"{DIM}That is the deliverable: not a feature you can see, but a machine")
-    print(f"that has lost the capability to hurt itself or the person next to it.{OFF}\n")
+    print(f"that has lost the capability to hurt itself or the person next to it —")
+    print(f"and that an operator can still recover without pulling the power.{OFF}\n")
     return 0
 
 

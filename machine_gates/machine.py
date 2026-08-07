@@ -84,7 +84,12 @@ class Supervisor:
                 self.state.estop_engaged = True
             self._axis.safe_stop("commanded stop")
         elif kind == "home":
-            self.state.homed = True
+            # `homed` is NOT set here. Issuing a home command is not the same as
+            # having reached the reference — an interrupted homing move would
+            # otherwise leave the machine believing it knows an absolute position
+            # it never established, which is precisely the state the homing gate
+            # exists to prevent. It is set in tick(), on arrival.
+            self.state.homing = True
             self._axis.command_move(self.state.limits.pos_min_mm, 40.0)
         elif kind in {"move_to", "jog"}:
             self._axis.command_move(
@@ -101,11 +106,21 @@ class Supervisor:
         reason = self._watchdog_reason()
         if reason and self._axis.moving:
             self._axis.safe_stop(reason)
+            # An interrupted homing move leaves the reference unestablished.
+            # Position knowledge is forfeited, not assumed.
+            if self.state.homing:
+                self.state.homing = False
+                self.state.homed = False
             self.log.append(f"SAFE-STOP: {reason}")
             return reason
-        self.state.position_mm = self._axis.position_mm
         self._axis.step(dt_s)
         self.state.position_mm = self._axis.position_mm
+        # Homing completes only on arrival at the reference.
+        if self.state.homing and not self._axis.moving:
+            if abs(self._axis.position_mm - self.state.limits.pos_min_mm) < 1e-6:
+                self.state.homing = False
+                self.state.homed = True
+                self.log.append("homed: reference reached")
         return None
 
     def _watchdog_reason(self) -> str | None:

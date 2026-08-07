@@ -31,9 +31,10 @@ class Consequence(enum.IntEnum):
 
     UI_ONLY = 0          # annoying, harmless (a label, a unit toggle)
     WONT_MOVE = 1        # machine refuses to act; production stops, nothing breaks
-    DAMAGES_MACHINE = 2  # a crash into a hard stop, a ruined tool
-    HURTS_PERSON = 3     # motion while someone can reach the working envelope
-    CATASTROPHIC = 4     # unrecoverable loss
+    RECOVERY = 2         # clears a latched fault; enables nothing on its own
+    DAMAGES_MACHINE = 3  # a crash into a hard stop, a ruined tool
+    HURTS_PERSON = 4     # motion while someone can reach the working envelope
+    CATASTROPHIC = 5     # unrecoverable loss
 
 
 @dataclass(frozen=True)
@@ -57,7 +58,6 @@ class Limits:
     pos_min_mm: float = 250.0
     pos_max_mm: float = 600.0
     speed_max_mms: float = 180.0
-    speed_max_person_present_mms: float = 0.0   # nobody in the cell -> no motion at all
     sensor_max_age_s: float = 0.25
     heartbeat_timeout_s: float = 3.0
 
@@ -72,6 +72,7 @@ class MachineState:
     guard_door_closed: bool = True
     person_in_cell: bool = False
     homed: bool = False
+    homing: bool = False   # a home move is in flight; `homed` is set on arrival
     last_sensor_update_s: float = field(default_factory=time.monotonic)
     last_heartbeat_s: float = field(default_factory=time.monotonic)
     now: callable = time.monotonic  # injectable clock, so tests need no sleeps
@@ -109,7 +110,14 @@ def classify(command: dict) -> Consequence:
         # the envelope, the same command carries a person-level consequence.
         return Consequence.HURTS_PERSON
     if kind == "clear_faults":
-        return Consequence.DAMAGES_MACHINE
+        # Recovery, not action. It enables nothing by itself — the next motion
+        # command still faces every gate. Classifying it as DAMAGES_MACHINE (as
+        # this file first did) made an engaged E-stop permanently unclearable,
+        # because class >= 2 refuses while the E-stop is engaged. A safety layer
+        # you cannot recover from is an availability failure wearing safety's
+        # clothes: the operator's only remaining option is to power-cycle the
+        # machine, which is exactly the uncontrolled action gates exist to avoid.
+        return Consequence.RECOVERY
     return Consequence.CATASTROPHIC  # unknown command: assume the worst
 
 
@@ -137,6 +145,21 @@ def evaluate(command: dict, state: MachineState) -> Verdict:
     # gate that has become the hazard.
     if consequence is Consequence.WONT_MOVE:
         return Verdict(True, consequence, "stop is never gated", ("always-allowed",))
+
+    # Class 2: recovery. Allowed while faulted — that is the whole point — but
+    # only when the reason for the fault is actually gone, so clearing cannot be
+    # used to paper over a live hazard. It grants no motion by itself.
+    if consequence is Consequence.RECOVERY:
+        if state.person_in_cell:
+            return Verdict(False, consequence,
+                           "cannot clear faults while a person is in the envelope",
+                           ("hazard-still-present",))
+        if not state.guard_door_closed:
+            return Verdict(False, consequence,
+                           "cannot clear faults with the guard door open",
+                           ("hazard-still-present",))
+        return Verdict(True, consequence, "hazard cleared — fault may be reset",
+                       ("cell-clear", "guard-closed"))
 
     # Class 2+: anything that can touch the machine needs a live, trustworthy
     # picture of it. Stale truth is treated as no truth.

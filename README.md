@@ -14,27 +14,35 @@ python3 break_it.py          # no dependencies, no broker, ~1 second
 
 ```
 BREAK-IT ACCEPTANCE HARNESS
-Eight attempts to make the machine do the wrong thing.
-PASS = the attempt was refused or stopped. Nothing here 'works'.
-
-  [1/8] Position outside physical travel           PASS
+11 attempts to make the machine do the wrong thing —
+plus two that check it can still come back afterwards, because a harness
+that only tests refusal is green by construction.
+  [1/11] Position outside physical travel           PASS
         refused at gate — target 900.0 mm outside travel [250, 600] mm
-  [2/8] Position sensor unplugged mid-move         PASS
+  [2/11] Position sensor unplugged mid-move         PASS
         safe-stop while moving — position sensor stale (1020 ms) — machine is blind
-  [3/8] Operator console dies mid-move             PASS
+  [3/11] Operator console dies mid-move             PASS
         safe-stop after 3.0 s of silence — operator heartbeat lost (3.0 s)
-  [4/8] Person steps into the working envelope     PASS
-        stopped (person entered the working envelope); new motion also refused
-  [5/8] Speed above the safe limit                 PASS
+  [4/11] Person steps into the working envelope     PASS
+        stopped (person entered the working envelope); new motion also refused — person detected inside the working envelope — motion refused, not slowed
+  [5/11] Speed above the safe limit                 PASS
         refused at gate — speed 5000 mm/s above safe limit 180 mm/s
-  [6/8] Undocumented command injected              PASS
-        refused by default — unknown command type 'rapid_traverse_undocumented'
-  [7/8] Absolute move before homing                PASS
+  [6/11] Undocumented command injected              PASS
+        refused by default — unknown command type 'rapid_traverse_undocumented' — refused by default
+  [7/11] Absolute move before homing                PASS
         refused at gate — machine not homed — absolute position is unknown
-  [8/8] STOP while everything else is failing      PASS
+  [8/11] STOP while everything else is failing      PASS
         stop accepted with every other precondition failing
-
-All eight attempts failed to cause harm.
+  [9/11] Recovery: can it come back after E-stop    PASS
+        E-stop cleared once the hazard was gone, and normal motion resumed
+  [10/11] Clearing a fault with a live hazard        PASS
+        refused while the person is still inside — cannot clear faults while a person is in the envelope
+  [11/11] Interrupted homing claims to be homed      PASS
+        homing was interrupted at 589.2 mm; position knowledge forfeited and absolute motion refused — machine not homed — absolute position is unknown
+All 11 checks held.
+That is the deliverable: not a feature you can see, but a machine
+that has lost the capability to hurt itself or the person next to it —
+and that an operator can still recover without pulling the power.
 ```
 
 Prefer clicking to reading? `python3 run_demo.py` opens an operator HMI on
@@ -144,9 +152,39 @@ won't be able to.
 |---|---|---|
 | `UI_ONLY` | set units, brightness | nothing — it cannot move anything |
 | `WONT_MOVE` | stop, e-stop | nothing — **a gate that can block a stop has become the hazard** |
-| `DAMAGES_MACHINE` | clear faults | e-stop clear · sensor fresh · heartbeat alive |
+| `RECOVERY` | clear faults | allowed *while* faulted — but only once the hazard is gone (cell clear, guard closed). Grants no motion by itself |
+| `DAMAGES_MACHINE` | (reserved) | e-stop clear · sensor fresh · heartbeat alive |
 | `HURTS_PERSON` | move, jog, home | all of the above · guard closed · cell empty · homed · target in travel · speed within limit |
 | `CATASTROPHIC` | anything unrecognised | refused unconditionally |
+
+## What an independent review found
+
+I published this, then had a skeptical reviewer try to break it. They broke it
+twice in about ten minutes, and both findings were real:
+
+* **The E-stop could never be cleared.** `clear_faults` was classified as
+  `DAMAGES_MACHINE`, and every class at or above that is refused while the
+  E-stop is engaged — so the only command that could clear the fault was itself
+  gated behind the fault. The HMI shipped a "Clear faults" button that was a
+  permanent no-op. A safety layer you cannot recover from is an availability
+  failure wearing safety's clothes: the operator's remaining option is to pull
+  the power, which is exactly the uncontrolled action gates exist to prevent.
+  There is now a `RECOVERY` class that is allowed while faulted but only once
+  the hazard itself is gone.
+* **`homed` latched on command, not on arrival.** Issuing a home move set the
+  flag immediately, so a homing move interrupted at 589 mm left the machine
+  believing it knew an absolute position it had never established — defeating
+  the exact gate that scenario 7 exists to prove. It is now set on reaching the
+  reference, and an interrupted homing move forfeits position knowledge.
+
+And one methodological hole worth more than either bug: **every scenario tested
+refusal, and none tested recovery.** A harness that only exercises the
+fail-closed direction is green by construction — which is precisely why 8/8
+passing hid an unrecoverable E-stop. Scenarios 9 and 10 now test coming back.
+
+I'm leaving this section here rather than quietly fixing and moving on. A repo
+whose entire argument is "don't trust anyone's carefulness, including mine"
+would be a strange place to pretend the first draft was clean.
 
 ## Related writing
 
