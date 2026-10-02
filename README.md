@@ -14,8 +14,8 @@ python3 break_it.py          # no dependencies, no broker, ~1 second
 
 ```
 BREAK-IT ACCEPTANCE HARNESS
-11 attempts to make the machine do the wrong thing —
-plus two that check it can still come back afterwards, because a harness
+11 checks. Most try to make the machine do the wrong thing;
+two check that it can still stop and come back afterwards, because a harness
 that only tests refusal is green by construction.
   [1/11] Position outside physical travel           PASS
         refused at gate — target 900.0 mm outside travel [250, 600] mm

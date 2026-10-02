@@ -2,14 +2,14 @@
 """The acceptance harness: try to break the machine, watch it fail safe.
 
 This is the script to run if you are the person paying for work you cannot see.
-You don't have to read the code. Run this, read the eight lines it prints, and
+You don't have to read the code. Run this, read the lines it prints, and
 decide for yourself whether the machine is allowed to hurt anything.
 
     python3 break_it.py
 
-Every scenario below is an attempt to make the machine do the wrong thing. A
-PASS means the attempt was refused at the gate or stopped by a watchdog — never
-that it "worked". Exit code is 0 only if every attempt failed to cause harm, so
+Most scenarios below are attempts to make the machine do the wrong thing; two
+check that it can still stop and recover. For an attack, PASS means the attempt
+was refused at the gate or stopped by a watchdog, never that it "worked". Exit code is 0 only if every attempt failed to cause harm, so
 this doubles as a CI gate.
 """
 from __future__ import annotations
@@ -209,8 +209,8 @@ SCENARIOS = [
 
 def main() -> int:
     print(f"\n{BOLD}BREAK-IT ACCEPTANCE HARNESS{OFF}")
-    print(f"{DIM}{len(SCENARIOS)} attempts to make the machine do the wrong thing —")
-    print(f"plus two that check it can still come back afterwards, because a harness")
+    print(f"{DIM}{len(SCENARIOS)} checks. Most try to make the machine do the wrong thing;")
+    print(f"two check that it can still stop and come back afterwards, because a harness")
     print(f"that only tests refusal is green by construction.{OFF}\n")
 
     failures = 0
