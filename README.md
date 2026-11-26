@@ -197,3 +197,7 @@ More runnable demos: **[boheastill.com/demos](https://boheastill.com/demos/?r=gh
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+**Shipping a machine or operator HMI?** I build operator interfaces, protocol bridges (Modbus / OPC UA / MQTT), and adversarial safety/acceptance harnesses for machine builders and integrators (Shenzhen · working EU/US hours `10:00–20:00 UTC`). Start with a fixed-price **[3-day Feasibility Sprint ($750, runnable demo included)](https://boheastill.com/sprint/?r=gh-mqtt-safety)** or write to **[hi@boheastill.com](mailto:hi@boheastill.com)** · **[boheastill.com](https://boheastill.com/?r=gh-mqtt-safety)**
